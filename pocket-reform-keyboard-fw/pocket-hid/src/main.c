@@ -71,6 +71,15 @@ static uint8_t pressed_scancodes[MAX_SCANCODES] = {0,0,0,0,0,0};
 static int pressed_keys = 0;
 static volatile uint32_t led_value = 0;
 
+// used for keyboard dimming
+int idle_counter = 0;
+int saved_brightness;
+bool dimmed = false;
+
+int led_brightness = 0;
+int led_saturation = 255;
+int led_hue = 127;
+
 void hid_task(void);
 int process_keyboard(uint8_t* resulting_scancodes);
 
@@ -426,7 +435,24 @@ int process_keyboard(uint8_t* resulting_scancodes) {
   }
 
   // if no more keys are held down, allow a new menu command
-  if (total_pressed<1) last_menu_key = 0;
+  if (total_pressed<1) {
+    last_menu_key = 0;
+    if (!dimmed) {
+      if (idle_counter >= 1000000) {
+	dimmed = true;
+	saved_brightness = led_brightness;
+	led_set_brightness(0);
+      } else {
+	idle_counter++;
+      }
+    }
+  } else {
+    if (dimmed) {
+      led_set_brightness(saved_brightness);
+      dimmed = false;
+    }
+    idle_counter = 0;
+  }
 
   // if device is off and user is pressing random keys,
   // show a hint for turning on the device
@@ -658,10 +684,6 @@ void hid_task(void)
     gfx_flush();*/
   }
 }
-
-int led_brightness = 0;
-int led_saturation = 255;
-int led_hue = 127;
 
 typedef struct RgbColor
 {
