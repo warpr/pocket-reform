@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
 		for (int y=0; y<NUM_R; y++) {
 			for (int x=0; x<ROWS[y].num_keys; x++) {
 				pref_key* k = &ROWS[y].keys[x];
-				if (k->det == 1) {
+				if (k->det == 1 || k->code == 0) {
 					printf("    ");
 				} else {
 					printf("%3s ", k->label);
