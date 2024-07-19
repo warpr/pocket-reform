@@ -1,0 +1,29 @@
+image: debian:unstable-slim
+
+build:
+  artifacts:
+    paths:
+      - pocket-reform-sysctl-fw/build/sysctl.uf2
+  script: |
+    set -x
+    apt update
+    apt-get --no-install-recommends -y install ca-certificates git build-essential avr-libc gcc-avr gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib libusb-1.0-0-dev cmake python3
+    # use the timestamp of the latest git commit to set reproducible S_D_E
+    if [ -z ${SOURCE_DATE_EPOCH:+x} ] && git -C . rev-parse 2>/dev/null; then
+      SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+    fi
+    # check if the current commit is tagged or otherwise use the git hash
+    if git describe >/dev/null 2>&1 && [ "$(git describe --abbrev=0)" = "$(git describe)" ]; then
+      VERSION="$(git describe --abbrev=0 | tr -d -)"
+    else
+      VERSION="g$(git rev-parse --short=7 HEAD)"
+    fi
+    git clone --depth 1 https://github.com/raspberrypi/pico-sdk
+    git clone --depth 1 https://github.com/raspberrypi/pico-extras
+    git clone --depth 1 https://github.com/hathach/tinyusb
+    export PICO_SDK_PATH="$(pwd)/pico-sdk"
+    cd pocket-reform-sysctl-fw
+    mkdir -p build
+    cd build
+    cmake ..
+    make
