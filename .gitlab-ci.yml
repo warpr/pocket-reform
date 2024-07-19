@@ -19,11 +19,14 @@ build:
       VERSION="g$(git rev-parse --short=7 HEAD)"
     fi
     git clone --branch 1.5.1 --depth 1 https://github.com/raspberrypi/pico-sdk
+    # important, otherwise USB will silently fail
+    cd pico-sdk
+    git submodule update --init
+    cd ..
     git clone --branch sdk-1.5.1 --depth 1 https://github.com/raspberrypi/pico-extras
-    git clone --branch 0.16.0 --depth 1 https://github.com/hathach/tinyusb
     export PICO_SDK_PATH="$(pwd)/pico-sdk"
     cd pocket-reform-sysctl-fw
     mkdir -p build
     cd build
     cmake ..
-    make
+    make -j $(nproc)
