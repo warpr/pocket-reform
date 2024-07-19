@@ -18,9 +18,9 @@ build:
     else
       VERSION="g$(git rev-parse --short=7 HEAD)"
     fi
-    git clone --depth 1 https://github.com/raspberrypi/pico-sdk
-    git clone --depth 1 https://github.com/raspberrypi/pico-extras
-    git clone --depth 1 https://github.com/hathach/tinyusb
+    git clone --branch 1.5.1 --depth 1 https://github.com/raspberrypi/pico-sdk
+    git clone --branch sdk-1.5.1 --depth 1 https://github.com/raspberrypi/pico-extras
+    git clone --branch 0.16.0 --depth 1 https://github.com/hathach/tinyusb
     export PICO_SDK_PATH="$(pwd)/pico-sdk"
     cd pocket-reform-sysctl-fw
     mkdir -p build
