@@ -2,7 +2,7 @@
   SPDX-License-Identifier: GPL-3.0-or-later
   MNT Pocket Reform System Controller Firmware for RP2040
   Copyright 2023-2024 MNT Research GmbH
-  
+
   fusb_read/write functions based on:
   https://git.clarahobbs.com/pd-buddy/pd-buddy-firmware/src/branch/master/lib/src/fusb302b.c
 */
@@ -16,12 +16,18 @@
 #include "hardware/spi.h"
 #include "hardware/irq.h"
 #include "hardware/rtc.h"
+#include "hardware/clocks.h"
+#include "hardware/pwm.h"
 #include "fusb302b.h"
 #include "pd.h"
 
+//#define FACTORY_MODE // turn device on immediately after starting sysctl
+//#define ACM_ENABLED // usb serial control for debugging
+//#define PREF_DISPLAY_V2 // backlight control for second type of display, TOP070F01A (not LT070ME05000)
+
 #define FW_STRING1 "PREF1SYS"
 #define FW_STRING2 "R1"
-#define FW_STRING3 "20240416"
+#define FW_STRING3 "20240716"
 #define FW_REV FW_STRING1 FW_STRING2 FW_STRING3
 
 #define PIN_SDA 0
@@ -71,17 +77,71 @@
 #define STOP_BITS 1
 #define PARITY    UART_PARITY_NONE
 
+#include "pico/divider.h"
+
+// copied from Pranjal Chanda, "RP2040 PWM Frequency and Duty cycle set algorithm"
+/**
+ *  @brief Set frequency and duty cycle for any PWM slice and channel
+ *  @param[in] slice_num  The slice number the GPIO is associated to
+ *  @param[in] chan       The channel number the GPIO is associated to
+ *  @param[in] freq       The required frequency to be set
+ *  @param[in] duty_cycle The required duty cycle in percentage 1->100
+ *
+ *  @return 1: Success; <0: Error
+ */
+int32_t pwm_set_freq_duty(uint32_t slice_num, uint32_t chan, uint32_t freq, int duty_cycle)
+{
+  uint8_t clk_divider = 0;
+  uint32_t wrap = 0;
+  uint32_t clock_div = 0;
+  uint32_t clock = clock_get_hz(clk_sys);
+
+  if (freq < 8 || freq > clock)
+    /* This is the frequency range of generating a PWM
+       in RP2040 at 125MHz */
+    return -1;
+
+  for (clk_divider = 1; clk_divider < UINT8_MAX; clk_divider++)  {
+    /* Find clock_division to fit current frequency */
+    clock_div = div_u32u32(clock, clk_divider);
+    wrap = div_u32u32(clock_div, freq);
+    if (div_u32u32(clock_div, UINT16_MAX) <= freq && wrap <= UINT16_MAX) {
+      break;
+    }
+  }
+
+  if (clk_divider < UINT8_MAX)  {
+    /* Only considering whole number division */
+    pwm_set_clkdiv_int_frac(slice_num, clk_divider, 0);
+    pwm_set_enabled(slice_num, true);
+    pwm_set_wrap(slice_num, (uint16_t)wrap);
+    pwm_set_chan_level(slice_num, chan,
+                       (uint16_t)div_u32u32((((uint16_t)(duty_cycle == 100?
+                                                         (wrap + 1) : wrap)) * duty_cycle), 100));
+  } else return -2;
+
+  return 1;
+}
+
+// this functionality is only for the second type of display for Pocket Reform
+// that will ship in late 2024 (TOP070F01A)
+int disp_bl_percent = 50;
+void set_display_backlight(int percent) {
+#ifdef PREF_DISPLAY_V2
+  // DISP_EN = 7 = PWM3 B
+  printf("# set_display_backlight: %d", percent);
+  pwm_set_freq_duty(pwm_gpio_to_slice_num(PIN_DISP_EN), pwm_gpio_to_channel(PIN_DISP_EN), 100000, percent);
+#endif
+}
+
 // battery information
 // TODO: turn into a struct
-// 4.8A x 3600 seconds/hour (per cell)
-#define MAX_CAPACITY (4.0)*3600.0
-float report_capacity_max_ampsecs =  MAX_CAPACITY;
-float report_capacity_accu_ampsecs = MAX_CAPACITY;
-float report_capacity_min_ampsecs = 0;
+#define CAPACITY_MILLIAMP_HOURS 4000
 int report_capacity_percentage = 0;
 float report_volts = 0;
 float report_current = 0;
 float report_cells_v[8] = {0,0,0,0,0,0,0,0};
+uint16_t max17320_devname = 0;
 bool reached_full_charge = true; // FIXME
 bool som_is_powered = false;
 bool print_pack_info = false;
@@ -385,7 +445,7 @@ uint8_t fusb_read_message(union pd_msg *msg)
 // returns voltage
 int print_src_fixed_pdo(int number, uint32_t pdo) {
   int tmp;
-  
+
   printf("[pd_src_fixed_pdo]\n");
   printf("number = %d\n", number);
 
@@ -508,6 +568,15 @@ float charger_dump() {
   return adc_input_v;
 }
 
+int max_identify() {
+  // read devname to identify if communication works
+  max17320_devname = max_read_word(0x21);
+  if (max17320_devname == 0x4209 || max17320_devname == 0x420a || max17320_devname == 0x420b) {
+    return 1;
+  }
+  return 0;
+}
+
 void max_dump() {
   // disable write protection (CommStat)
   max_write_word(0x61, 0x0000);
@@ -575,7 +644,7 @@ void max_dump() {
     printf("temp2 = %f\n", temp2);
     printf("temp3 = %f\n", temp3);
     printf("temp4 = %f\n", temp4);
-    
+
     printf("prot_status = 0x%04x\n", prot_status);
 
     printf("prot_status_meaning = \"");
@@ -641,7 +710,7 @@ void max_dump() {
     printf("rep_time_to_empty_sec = %f\n", rep_time_to_empty);
     printf("rep_time_to_full_sec = %f\n", rep_time_to_full);
   }
-    
+
   if (status & 0x0002) {
     printf("# POR, clearing status\n");
     max_write_word(0x61, 0x0000);
@@ -654,7 +723,7 @@ void init_spi_client();
 
 void turn_som_power_on() {
   init_spi_client();
-  
+
   // latch
   gpio_put(PIN_PWREN_LATCH, 1);
 
@@ -665,12 +734,6 @@ void turn_som_power_on() {
   sleep_ms(10);
   gpio_put(PIN_3V3_ENABLE, 1);
   sleep_ms(10);
-
-  /*gpio_put(PIN_SOM_MOSI, 1);
-  gpio_put(PIN_SOM_SS0, 1);
-  gpio_put(PIN_SOM_SCK, 1);
-  gpio_put(PIN_SOM_MISO, 1);*/
-
   gpio_put(PIN_5V_ENABLE, 1);
 
   // MODEM
@@ -679,8 +742,12 @@ void turn_som_power_on() {
   gpio_put(PIN_MODEM_POWER, 1); // active high
   gpio_put(PIN_PHONE_DPR, 1); // active high
 
-  sleep_ms(10);
+#ifdef PREF_DISPLAY_V2
+  set_display_backlight(50);
+#else
   gpio_put(PIN_DISP_EN, 1);
+#endif
+
   sleep_ms(10);
   gpio_put(PIN_DISP_RESET, 1);
 
@@ -688,28 +755,31 @@ void turn_som_power_on() {
   gpio_put(PIN_MODEM_RESET, 1); // active low
 
   // done with latching
+#ifdef PREF_DISPLAY_V2
+  // FIXME: can't stop the latch when using non-100% brightness
+#else
   gpio_put(PIN_PWREN_LATCH, 0);
+#endif
 
   som_is_powered = true;
 }
 
 void turn_som_power_off() {
   init_spi_client();
-  
+
   // latch
   gpio_put(PIN_PWREN_LATCH, 1);
-
-  // FIXME spi test
-  /*gpio_put(PIN_SOM_MOSI, 0);
-  gpio_put(PIN_SOM_SS0, 0);
-  gpio_put(PIN_SOM_SCK, 0);
-  gpio_put(PIN_SOM_MISO, 0);*/
 
   gpio_put(PIN_LED_B, 0);
 
   printf("# [action] turn_som_power_off\n");
   gpio_put(PIN_DISP_RESET, 0);
+
+#ifdef PREF_DISPLAY_V2
+  set_display_backlight(0);
+#else
   gpio_put(PIN_DISP_EN, 0);
+#endif
 
   // MODEM
   gpio_put(PIN_FLIGHTMODE, 0); // active low
@@ -1068,9 +1138,9 @@ void handle_spi_commands() {
   }
   // get calculated capacity
   else if (spi_command == 'c') {
-    uint16_t cap_accu = (uint16_t) report_capacity_max_ampsecs / 3.6;
-    uint16_t cap_min = (uint16_t) report_capacity_min_ampsecs / 3.6;
-    uint16_t cap_max = (uint16_t) report_capacity_max_ampsecs / 3.6;
+    uint16_t cap_accu = (uint16_t) CAPACITY_MILLIAMP_HOURS * (((float) report_capacity_percentage) / 100.0);
+    uint16_t cap_min = (uint16_t) 0;
+    uint16_t cap_max = (uint16_t) CAPACITY_MILLIAMP_HOURS;
 
     spi_buf[0] = (uint8_t)cap_accu;
     spi_buf[1] = (uint8_t)(cap_accu >> 8);
@@ -1082,6 +1152,13 @@ void handle_spi_commands() {
   else if (spi_command == 'u') {
     // not implemented
   }
+  else if (spi_command == 'b') {
+    // only for display v2
+    int brightness = spi_arg1;
+    if (brightness < 0) brightness = 0;
+    if (brightness > 100) brightness = 100;
+    set_display_backlight(brightness);
+  }
 
   // FIXME: if we don't reset, SPI wants to transact the amount of bytes
   // that we read above for unknown reasons
@@ -1090,7 +1167,7 @@ void handle_spi_commands() {
   if (som_is_powered) {
     spi_write_blocking(spi1, spi_buf, SPI_BUF_LEN);
   }
-  
+
   spi_cmd_state = ST_EXPECT_MAGIC;
   spi_command = 0;
   spi_arg1 = 0;
@@ -1157,8 +1234,13 @@ int main() {
   gpio_init(PIN_DISP_EN);
   gpio_set_dir(PIN_DISP_EN, 1);
   gpio_set_dir(PIN_DISP_RESET, 1);
-  gpio_put(PIN_DISP_EN, 0);
   gpio_put(PIN_DISP_RESET, 0);
+
+#ifdef PREF_DISPLAY_V2
+  gpio_set_function(PIN_DISP_EN, GPIO_FUNC_PWM);
+#else
+  gpio_put(PIN_DISP_EN, 0);
+#endif
 
   gpio_init(PIN_FLIGHTMODE);
   gpio_init(PIN_MODEM_POWER);
@@ -1199,13 +1281,9 @@ int main() {
   int power_objects = 0;
   int max_voltage = 0;
 
-  sleep_ms(5000);
+  int factory_turn_on_once = 1;
 
-#ifdef FACTORY_MODE
-  // in factory mode, turn on power immediately to be able to flash
-  // the keyboard
-  turn_som_power_on();
-#endif
+  sleep_ms(1000);
 
   printf("# [pocket_sysctl] entering main loop.\n");
 
@@ -1231,6 +1309,36 @@ int main() {
       else if (usb_c == 'p') {
         print_pack_info = !print_pack_info;
       }
+      else if (usb_c == 'r') {
+        state = 0;
+      }
+      else if (usb_c == 'R') {
+        state = 0;
+        fusb_write_byte(FUSB_CONTROL3,
+                        FUSB_CONTROL3_SEND_HARD_RESET |
+                        FUSB_CONTROL3_AUTO_HARDRESET |
+                        FUSB_CONTROL3_AUTO_SOFTRESET |
+                        (3<<FUSB_CONTROL3_N_RETRIES_SHIFT) |
+                        FUSB_CONTROL3_AUTO_RETRY);
+        sleep_ms(1);
+        fusb_write_byte(FUSB_CONTROL3,
+                        FUSB_CONTROL3_AUTO_HARDRESET |
+                        FUSB_CONTROL3_AUTO_SOFTRESET |
+                        (3<<FUSB_CONTROL3_N_RETRIES_SHIFT) |
+                        FUSB_CONTROL3_AUTO_RETRY);
+      }
+      else if (usb_c == '-') {
+        // only for PREF_DISPLAY_V2
+        disp_bl_percent -= 5;
+        if (disp_bl_percent < 0) disp_bl_percent = 0;
+        set_display_backlight(disp_bl_percent);
+      }
+      else if (usb_c == '+') {
+        // only for PREF_DISPLAY_V2
+        disp_bl_percent += 5;
+        if (disp_bl_percent > 100) disp_bl_percent = 100;
+        set_display_backlight(disp_bl_percent);
+      }
     }
 #endif
 
@@ -1242,7 +1350,7 @@ int main() {
       // by default, we output 5V on VUSB
       gpio_put(PIN_USB_SRC_ENABLE, 1);
 
-      //printf("# [pd] state 0\n");
+      printf("# [pd] state 0\n");
       // probe FUSB302BMPX
       if (i2c_read_timeout_us(i2c0, FUSB_ADDR, rxdata, 1, false, I2C_TIMEOUT)) {
         // 1. set auto GoodCRC
@@ -1258,9 +1366,14 @@ int main() {
         // turn on all power
         fusb_write_byte(FUSB_POWER, 0x0F);
         // automatic retransmission
-        //fusb_write_byte(FUSB_CONTROL3, 0x07);
-        // AUTO_HARDRESET | AUTO_SOFTRESET | 3 retries | AUTO_RETRY
-        fusb_write_byte(FUSB_CONTROL3, (1<<4) | (1<<3) | (3<<1) | 1);
+        fusb_write_byte(FUSB_CONTROL3,
+                        FUSB_CONTROL3_AUTO_HARDRESET |
+                        FUSB_CONTROL3_AUTO_SOFTRESET |
+                        (3<<FUSB_CONTROL3_N_RETRIES_SHIFT) |
+                        FUSB_CONTROL3_AUTO_RETRY);
+
+        printf("# [pd] auto hard/soft reset and retries set.\n");
+
         // flush rx buffer
         fusb_write_byte(FUSB_CONTROL1, FUSB_CONTROL1_RX_FLUSH);
 
@@ -1271,14 +1384,14 @@ int main() {
         sleep_us(250);
         uint8_t cc1 = fusb_read_byte(FUSB_STATUS0) & FUSB_STATUS0_BC_LVL;
 
-        //printf("# [pd] CC1: %d\n", cc1);
+        printf("# [pd] CC1: %d\n", cc1);
 
         /* Measure CC2 */
         fusb_write_byte(FUSB_SWITCHES0, 8|2|1); //  MEAS_CC2|PDWN2   |PDWN1
         sleep_us(250);
         uint8_t cc2 = fusb_read_byte(FUSB_STATUS0) & FUSB_STATUS0_BC_LVL;
 
-        //printf("# [pd] CC2: %d\n", cc2);
+        printf("# [pd] CC2: %d\n", cc2);
 
         // detect orientation
         if (cc1 > cc2) {
@@ -1289,17 +1402,9 @@ int main() {
           fusb_write_byte(FUSB_SWITCHES0,  8|2|1); //  MEAS_CC2|PDWN2   |PDWN1
         }
 
-        //printf("# [pd] switches set.\n");
+        printf("# [pd] switches set.\n");
 
         fusb_write_byte(FUSB_RESET, FUSB_RESET_PD_RESET);
-
-        // automatic soft reset
-        // FIXME disturbs PD with some supplies
-        //fusb_write_byte(FUSB_CONTROL3, (1<<6) | (1<<4) | (1<<3) | (3<<1) | 1);
-        //sleep_ms(1);
-        //fusb_write_byte(FUSB_CONTROL3, (1<<4) | (1<<3) | (3<<1) | 1);
-
-        //printf("# [pd] auto hard/soft reset and retries set.\n");
 
         t = 0;
         state = 1;
@@ -1313,20 +1418,32 @@ int main() {
     } else if (state == 1) {
       //printf("[pocket-sysctl] state 1\n");
 
-      if (t>3000) {
+      if (t>300) {
         printf("# [pd] state 1, timeout.\n");
-        float input_voltage = charger_dump();
-        max_dump();
+        float input_voltage = -1;
+        if (max_identify()) {
+          input_voltage = charger_dump();
+          max_dump();
+        } else {
+          printf("# [pd] (state 1) charger not available.\n");
+        }
         t = 0;
+
+        printf("# [pd] (state 1) max17320_devname: %x input_voltage: %f\n", max17320_devname, input_voltage);
 
         // without batteries, the system dies here (brownout?)
         // but the charger might have set up the requested voltage anyway
-        if (input_voltage < 6) {
-          fusb_write_byte(FUSB_CONTROL3, (1<<6) | (1<<4) | (1<<3) | (3<<1) | 1);
-          //sleep_ms(1);
-          fusb_write_byte(FUSB_CONTROL3, (1<<4) | (1<<3) | (3<<1) | 1);
+        if (input_voltage != -1 && input_voltage < 6) {
+        fusb_write_byte(FUSB_CONTROL3,
+                        FUSB_CONTROL3_SEND_HARD_RESET |
+                        FUSB_CONTROL3_AUTO_HARDRESET |
+                        FUSB_CONTROL3_AUTO_SOFTRESET |
+                        (3<<FUSB_CONTROL3_N_RETRIES_SHIFT) |
+                        FUSB_CONTROL3_AUTO_RETRY);
+          sleep_ms(1);
           state = 0;
         } else {
+          // voltage is already good enough, proceed
           state = 3;
         }
       }
@@ -1334,7 +1451,7 @@ int main() {
       int res = fusb_read_message(&rx_msg);
 
       if (!res) {
-        //printf("# [pd] s1: charger responds, turning off USB_SRC\n");
+        printf("# [pd] s1: charger responds, turning off USB_SRC\n");
         // if a charger is responding, turn off our 5V output
         gpio_put(PIN_USB_SRC_ENABLE, 0);
 
@@ -1402,24 +1519,39 @@ int main() {
       charger_configure();
 
       // charging
-      sleep_ms(1);
+      //sleep_ms(1);
 
       // running
-      if (t>2000) {
+      if (t>200) {
         printf("# [pd] state 3.\n");
 
         float input_voltage = charger_dump();
         max_dump();
 
-        if (input_voltage < 6) {
-          printf("# [pd] input voltage below 6v, renegotiate.\n");
-          state = 0;
+#ifdef FACTORY_MODE
+        // in factory mode, turn on power immediately to be able to flash
+        // the keyboard
+        if (factory_turn_on_once) {
+          factory_turn_on_once = 0;
+          turn_som_power_on();
         }
+#else
+        if (max_identify()) {
+          printf("# [pd] (state 3) max17320_devname: %x input_voltage: %f\n", max17320_devname, input_voltage);
+          if (input_voltage < 6) {
+            printf("# [pd] (state 3) input voltage below 6v, renegotiate.\n");
+            state = 0;
+          }
+        } else {
+          printf("# [pd] (state 3) charger not available, max17320_devname: %x.\n", max17320_devname);
+        }
+#endif
 
         t = 0;
       }
     }
 
+    sleep_ms(10);
     t++;
     t_report++;
   }
