@@ -136,10 +136,7 @@ void set_display_backlight(int percent) {
 
 // battery information
 // TODO: turn into a struct
-// 4.8A x 3600 seconds/hour (per cell)
-#define MAX_CAPACITY (4.0)*3600.0
-float report_capacity_max_ampsecs = MAX_CAPACITY;
-float report_capacity_min_ampsecs = 0;
+#define CAPACITY_MILLIWATT_HOURS 2 * 3.7 * 4000
 int report_capacity_percentage = 0;
 float report_volts = 0;
 float report_current = 0;
@@ -1141,9 +1138,9 @@ void handle_spi_commands() {
   }
   // get calculated capacity
   else if (spi_command == 'c') {
-    uint16_t cap_accu = (uint16_t) report_capacity_max_ampsecs * (((float) report_capacity_percentage) / 100.0) / 3.6;
-    uint16_t cap_min = (uint16_t) report_capacity_min_ampsecs / 3.6;
-    uint16_t cap_max = (uint16_t) report_capacity_max_ampsecs / 3.6;
+    uint16_t cap_accu = (uint16_t) CAPACITY_MILLIWATT_HOURS * (((float) report_capacity_percentage) / 100.0);
+    uint16_t cap_min = (uint16_t) 0;
+    uint16_t cap_max = (uint16_t) CAPACITY_MILLIWATT_HOURS;
 
     spi_buf[0] = (uint8_t)cap_accu;
     spi_buf[1] = (uint8_t)(cap_accu >> 8);
@@ -1156,6 +1153,7 @@ void handle_spi_commands() {
     // not implemented
   }
   else if (spi_command == 'b') {
+    // only for display v2
     int brightness = spi_arg1;
     if (brightness < 0) brightness = 0;
     if (brightness > 100) brightness = 100;
