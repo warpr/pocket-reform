@@ -45,5 +45,10 @@ read
 
 # flash! (this will hard power down the system)
 sync
+sleep 0.5
+# hack to prevent writes + fs corruption to rootfs
+echo u > /proc/sysrq-trigger
+sleep 0.5
 picotool load --bus $BUS --address $ADDR -f $FWPATH
 picotool reboot -f
+
