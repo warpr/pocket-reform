@@ -136,7 +136,7 @@ void set_display_backlight(int percent) {
 
 // battery information
 // TODO: turn into a struct
-#define CAPACITY_MILLIWATT_HOURS 2 * 3.7 * 4000
+#define CAPACITY_MILLIAMP_HOURS 4000
 int report_capacity_percentage = 0;
 float report_volts = 0;
 float report_current = 0;
@@ -1138,9 +1138,9 @@ void handle_spi_commands() {
   }
   // get calculated capacity
   else if (spi_command == 'c') {
-    uint16_t cap_accu = (uint16_t) CAPACITY_MILLIWATT_HOURS * (((float) report_capacity_percentage) / 100.0);
+    uint16_t cap_accu = (uint16_t) CAPACITY_MILLIAMP_HOURS * (((float) report_capacity_percentage) / 100.0);
     uint16_t cap_min = (uint16_t) 0;
-    uint16_t cap_max = (uint16_t) CAPACITY_MILLIWATT_HOURS;
+    uint16_t cap_max = (uint16_t) CAPACITY_MILLIAMP_HOURS;
 
     spi_buf[0] = (uint8_t)cap_accu;
     spi_buf[1] = (uint8_t)(cap_accu >> 8);
