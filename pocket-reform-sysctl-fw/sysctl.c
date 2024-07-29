@@ -138,8 +138,7 @@ void set_display_backlight(int percent) {
 // TODO: turn into a struct
 // 4.8A x 3600 seconds/hour (per cell)
 #define MAX_CAPACITY (4.0)*3600.0
-float report_capacity_max_ampsecs =  MAX_CAPACITY;
-float report_capacity_accu_ampsecs = MAX_CAPACITY;
+float report_capacity_max_ampsecs = MAX_CAPACITY;
 float report_capacity_min_ampsecs = 0;
 int report_capacity_percentage = 0;
 float report_volts = 0;
@@ -1142,7 +1141,7 @@ void handle_spi_commands() {
   }
   // get calculated capacity
   else if (spi_command == 'c') {
-    uint16_t cap_accu = (uint16_t) report_capacity_max_ampsecs / 3.6;
+    uint16_t cap_accu = (uint16_t) report_capacity_max_ampsecs * (((float) report_capacity_percentage) / 100.0) / 3.6;
     uint16_t cap_min = (uint16_t) report_capacity_min_ampsecs / 3.6;
     uint16_t cap_max = (uint16_t) report_capacity_max_ampsecs / 3.6;
 
