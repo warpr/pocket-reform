@@ -1305,6 +1305,7 @@ int main() {
   // pins.
   if (syscon_warm_boot()) {
       printf("# [reset] watchdog scratch had valid on magic, not latching power.\n");
+      som_is_powered = true;
   } else {
       gpio_put(PIN_PWREN_LATCH, 1);
       gpio_put(PIN_PWREN_LATCH, 0);
