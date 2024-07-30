@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
 #include "pico/sleep.h"
@@ -1298,7 +1299,7 @@ int main() {
 #ifdef ACM_ENABLED
     // handle commands over usb serial
     int usb_c = getchar_timeout_us(0);
-    if (usb_c != PICO_ERROR_TIMEOUT) {
+    if (usb_c != PICO_ERROR_TIMEOUT && isprint(usb_c)) {
       printf("# [acm_command] '%c'\n", usb_c);
       if (usb_c == '1') {
         turn_som_power_on();
