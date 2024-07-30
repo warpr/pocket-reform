@@ -19,6 +19,9 @@
 #include "hardware/rtc.h"
 #include "hardware/clocks.h"
 #include "hardware/pwm.h"
+#include "hardware/watchdog.h"
+#include "hardware/structs/watchdog.h"
+#include "hardware/structs/vreg_and_chip_reset.h"
 #include "fusb302b.h"
 #include "pd.h"
 
@@ -28,7 +31,7 @@
 
 #define FW_STRING1 "PREF1SYS"
 #define FW_STRING2 "R1"
-#define FW_STRING3 "20240716"
+#define FW_STRING3 "20240730"
 #define FW_REV FW_STRING1 FW_STRING2 FW_STRING3
 
 #define PIN_SDA 0
@@ -79,6 +82,30 @@
 #define PARITY    UART_PARITY_NONE
 
 #include "pico/divider.h"
+
+#define BOOT_MAGIC_2 0xAA55F0F0
+#define BOOT_MAGIC_3 0x0F0F55AA
+#define BOOT_MAGIC_OFF (io_rw_32)(-1)
+
+// The Pico boot rom uses watchdog scratch registers 0, 1, 4, 5, 6, and 7.
+// That leaves 2 and 3 for our "system is on" magic.
+// A _real_ power-on reset clears these registers, so if our magic is left over
+// then we have either been updated while the system is on, or have run into an
+// event with probability 2**-64.
+bool syscon_warm_boot() {
+    return (watchdog_hw->scratch[2] == BOOT_MAGIC_2 &&
+            watchdog_hw->scratch[3] == BOOT_MAGIC_3);
+}
+
+void set_boot_magic() {
+    watchdog_hw->scratch[2] = BOOT_MAGIC_2;
+    watchdog_hw->scratch[3] = BOOT_MAGIC_3;
+}
+
+void clear_boot_magic() {
+    watchdog_hw->scratch[2] = BOOT_MAGIC_OFF;
+    watchdog_hw->scratch[3] = BOOT_MAGIC_OFF;
+}
 
 // copied from Pranjal Chanda, "RP2040 PWM Frequency and Duty cycle set algorithm"
 /**
@@ -730,6 +757,8 @@ void turn_som_power_on() {
 
   gpio_put(PIN_LED_B, 1);
 
+  set_boot_magic();
+
   printf("# [action] turn_som_power_on\n");
   gpio_put(PIN_1V1_ENABLE, 1);
   sleep_ms(10);
@@ -772,6 +801,8 @@ void turn_som_power_off() {
   gpio_put(PIN_PWREN_LATCH, 1);
 
   gpio_put(PIN_LED_B, 0);
+
+  clear_boot_magic();
 
   printf("# [action] turn_som_power_off\n");
   gpio_put(PIN_DISP_RESET, 0);
@@ -1188,6 +1219,12 @@ int main() {
   stdio_init_all();
   init_spi_client();
 
+  //sleep_ms(15000);
+
+  printf("# [reset] cause: %#.8x\n", vreg_and_chip_reset_hw->chip_reset);
+  printf("# [reset] magic: %#.8x%.8x\n",
+         watchdog_hw->scratch[2], watchdog_hw->scratch[3]);
+
   // UART to keyboard
   uart_init(UART_ID, BAUD_RATE);
   uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
@@ -1264,9 +1301,14 @@ int main() {
   gpio_set_dir(PIN_USB_SRC_ENABLE, 1);
   gpio_put(PIN_USB_SRC_ENABLE, 0);
 
-  // latch the PWR and display pins
-  gpio_put(PIN_PWREN_LATCH, 1);
-  gpio_put(PIN_PWREN_LATCH, 0);
+  // if this is a warm boot, then we need to avoid latching the PWR and display
+  // pins.
+  if (syscon_warm_boot()) {
+      printf("# [reset] watchdog scratch had valid on magic, not latching power.\n");
+  } else {
+      gpio_put(PIN_PWREN_LATCH, 1);
+      gpio_put(PIN_PWREN_LATCH, 0);
+  }
 
   unsigned int t = 0;
   unsigned int t_report = 0;
