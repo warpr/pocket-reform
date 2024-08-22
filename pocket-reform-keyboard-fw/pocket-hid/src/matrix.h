@@ -74,27 +74,12 @@
   KEY_BACKSLASH,\
   KEY_EQUAL,\
   KEY_SPACE,\
-  KEY_NONE,\
+  KEY_SPACE,\
   KEY_MINUS,\
   KEY_SLASH,\
   KEY_LEFT,\
   KEY_DOWN,\
   KEY_RIGHT
-
-// Trackball row
-#define MATRIX_DEFAULT_ROW_6 \
-  KEY_1,\
-  KEY_2,\
-  KEY_3,\
-  KEY_4,\
-  KEY_5,\
-  KEY_6,\
-  KEY_7,\
-  KEY_8,\
-  KEY_9,\
-  KEY_0,\
-  KEY_A,\
-  KEY_B
 
 // Every line of `matrix` is a row of the keyboard, starting from the top.
 // Check keyboard.h for the definitions of the default rows.
@@ -103,8 +88,7 @@ uint8_t matrix[KBD_MATRIX_SZ] = {
   MATRIX_DEFAULT_ROW_2,
   MATRIX_DEFAULT_ROW_3,
   MATRIX_DEFAULT_ROW_4,
-  MATRIX_DEFAULT_ROW_5,
-  MATRIX_DEFAULT_ROW_6
+  MATRIX_DEFAULT_ROW_5
 };
 
 // When holding down HYPER
