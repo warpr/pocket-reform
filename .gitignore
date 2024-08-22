@@ -1,4 +1,5 @@
 build
+*~
 *-bak
 *.kicad_prl
 *.zip
