@@ -83,18 +83,18 @@
 
 // Trackball row
 #define MATRIX_DEFAULT_ROW_6 \
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_SPACE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE,\
-  KEY_NONE
+  KEY_1,\
+  KEY_2,\
+  KEY_3,\
+  KEY_4,\
+  KEY_5,\
+  KEY_6,\
+  KEY_7,\
+  KEY_8,\
+  KEY_9,\
+  KEY_0,\
+  KEY_A,\
+  KEY_B
 
 // Every line of `matrix` is a row of the keyboard, starting from the top.
 // Check keyboard.h for the definitions of the default rows.
