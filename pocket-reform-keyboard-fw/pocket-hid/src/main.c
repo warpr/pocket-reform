@@ -16,7 +16,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
-#include "pico/multicore.h"
+// #include "pico/multicore.h"
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
@@ -170,7 +170,7 @@ int main(void)
 
   PIO pio = pio0;
   uint sm = 0;
-  uint offset = pio_add_program(pio, &ws2812_program);
+  uint offset = (uint) pio_add_program(pio, &ws2812_program);
 
   ws2812_program_init(pio, sm, offset, PIN_LEDS, 800000, false);
 

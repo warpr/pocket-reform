@@ -34,7 +34,7 @@
   KEY_I,\
   KEY_O,\
   KEY_P,\
-  KEY_SEMICOLON
+  KEY_APOSTROPHE
 
 // Fourth row
 #define MATRIX_DEFAULT_ROW_3 \
@@ -48,7 +48,7 @@
   KEY_J,\
   KEY_K,\
   KEY_L,\
-  KEY_APOSTROPHE,\
+  KEY_SEMICOLON,\
   KEY_ENTER
 
 // Fifth row
